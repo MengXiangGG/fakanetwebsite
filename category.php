@@ -57,33 +57,31 @@ $products = $products->fetchAll(PDO::FETCH_ASSOC);
             font-weight: bold;
             color: #3498db;
         }
+        .navbar-brand {
+            cursor: default; /* 移除手型光标 */
+        }
+        .navbar-brand:hover {
+            color: inherit !important; /* 移除悬停颜色变化 */
+        }
     </style>
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container">
-            <a class="navbar-brand" href="index.php">
+            <!-- 修改：移除链接，只显示文字 -->
+            <span class="navbar-brand">
                 <i class="fas fa-shopping-cart me-2"></i><?php echo SITE_NAME; ?>
-            </a>
-            <a href="index.php" class="btn btn-outline-light btn-sm">返回首页</a>
+            </span>
         </div>
     </nav>
 
     <div class="container mt-4">
         <div class="row">
             <div class="col-12">
-                <nav aria-label="breadcrumb">
-                    <ol class="breadcrumb">
-                        <li class="breadcrumb-item"><a href="index.php">首页</a></li>
-                        <li class="breadcrumb-item active"><?php echo htmlspecialchars($category['name']); ?></li>
-                    </ol>
-                </nav>
+                <!-- 删除面包屑导航 -->
                 
                 <div class="d-flex justify-content-between align-items-center mb-4">
                     <h2><?php echo htmlspecialchars($category['name']); ?></h2>
-                    <button class="btn btn-outline-primary share-btn" data-slug="<?php echo $category['random_slug']; ?>">
-                        <i class="fas fa-share-alt"></i> 分享此分类
-                    </button>
                 </div>
                 
                 <p class="text-muted mb-4"><?php echo htmlspecialchars($category['description']); ?></p>
@@ -177,6 +175,11 @@ $products = $products->fetchAll(PDO::FETCH_ASSOC);
                 alert('链接已复制到剪贴板！');
             });
         }
+
+        // 阻止左上角品牌链接的默认行为（额外保护）
+        document.querySelector('.navbar-brand').addEventListener('click', function(e) {
+            e.preventDefault();
+        });
     </script>
 </body>
 </html>

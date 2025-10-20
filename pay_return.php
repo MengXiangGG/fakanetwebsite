@@ -2,29 +2,64 @@
 require_once 'includes/functions.php';
 require_once 'includes/epay.php';
 
+// 记录回调请求
+error_log("=== 收到支付返回回调 ===");
+error_log("GET参数: " . print_r($_GET, true));
+
 // 验证签名
-if (verifyEpayNotify()) {
+$verify_result = verifyEpayNotify();
+
+if ($verify_result) {
     $order_no = $_GET['out_trade_no'];
     $trade_status = $_GET['trade_status'];
     
-    // 获取订单信息（包含数量）
-    $stmt = $pdo->prepare("SELECT o.*, p.category_id FROM orders o 
-                          LEFT JOIN products p ON o.product_id = p.id 
-                          WHERE o.order_no = ?");
-    $stmt->execute([$order_no]);
-    $order = $stmt->fetch(PDO::FETCH_ASSOC);
+    error_log("回调验证成功 - 订单号: {$order_no}, 状态: {$trade_status}");
     
-    $success = ($trade_status === 'TRADE_SUCCESS' && $order && $order['status'] == 1);
-    
-    if ($success) {
-        // 获取订单的所有卡密（支持批量购买）
-        $cards_stmt = $pdo->prepare("SELECT * FROM order_cards WHERE order_no = ?");
-        $cards_stmt->execute([$order_no]);
-        $cards = $cards_stmt->fetchAll(PDO::FETCH_ASSOC);
+    if ($trade_status === 'TRADE_SUCCESS') {
+        // 获取订单信息（包含数量）
+        $stmt = $pdo->prepare("SELECT o.*, p.category_id FROM orders o 
+                              LEFT JOIN products p ON o.product_id = p.id 
+                              WHERE o.order_no = ?");
+        $stmt->execute([$order_no]);
+        $order = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        $success = ($order && $order['status'] == 1);
+        
+        if ($success) {
+            // 获取订单的所有卡密（支持批量购买）
+            $cards_stmt = $pdo->prepare("SELECT * FROM order_cards WHERE order_no = ?");
+            $cards_stmt->execute([$order_no]);
+            $cards = $cards_stmt->fetchAll(PDO::FETCH_ASSOC);
+        }
+    } else {
+        $success = false;
+        $error = '支付状态不是成功';
     }
 } else {
     $success = false;
     $error = '签名验证失败';
+    
+    // 调试信息
+    error_log("支付返回签名验证失败");
+    error_log("GET参数: " . print_r($_GET, true));
+    
+    // 即使签名验证失败，也尝试显示订单信息（为了用户体验）
+    $order_no = $_GET['out_trade_no'] ?? '';
+    if ($order_no) {
+        $stmt = $pdo->prepare("SELECT o.*, p.category_id FROM orders o 
+                              LEFT JOIN products p ON o.product_id = p.id 
+                              WHERE o.order_no = ?");
+        $stmt->execute([$order_no]);
+        $order = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if ($order && $order['status'] == 1) {
+            $success = true;
+            $cards_stmt = $pdo->prepare("SELECT * FROM order_cards WHERE order_no = ?");
+            $cards_stmt->execute([$order_no]);
+            $cards = $cards_stmt->fetchAll(PDO::FETCH_ASSOC);
+            $error = '';
+        }
+    }
 }
 ?>
 <!DOCTYPE html>
@@ -131,24 +166,28 @@ if (verifyEpayNotify()) {
                             </div>
                         </div>
 
-                        <!-- 卡密信息卡片 -->
-                        <?php if (!empty($cards)): ?>
-                        <div class="card-info">
-                            <div class="d-flex justify-content-between align-items-center mb-4">
-                                <h5 class="mb-0"><i class="fas fa-key"></i> 卡密信息</h5>
-                                <span class="card-count">共 <?php echo count($cards); ?> 个卡密</span>
-                            </div>
-                            
-                            <div class="row">
-                                <div class="col-md-8">
-                                    <!-- 合并显示所有卡密，一行一个 -->
-                                    <div class="card-text" id="allCardsText">
-<?php
-// 合并所有卡密，一行一个
+<!-- 卡密信息 -->
+<?php if (!empty($cards)): ?>
+<div class="card">
+    <div class="card-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+        <h5 class="mb-0"><i class="fas fa-key me-2"></i>卡密信息</h5>
+    </div>
+    <div class="card-body">
+        <div class="alert alert-warning">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            <strong>重要提示：</strong>请立即复制并妥善保存以下卡密信息，页面关闭后将无法再次查看！
+        </div>
+        
+        <!-- 整合的卡密文本 -->
+        <div class="mb-4">
+            <label class="form-label fw-bold">整合卡密（一键复制）</label>
+            <textarea class="form-control" id="allCardsText" rows="8" readonly style="font-family: 'Courier New', monospace; font-size: 14px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px; padding: 15px;"><?php 
+// 生成整合的卡密文本 - 去除空格
 $all_cards_text = "";
-foreach ($cards as $index => $card) {
-    $card_number = $card['card_number'];
-    $card_password = $card['card_password'];
+foreach ($cards as $card) {
+    // 去除卡号和密码中的前后空格
+    $card_number = trim($card['card_number']);
+    $card_password = trim($card['card_password']);
     
     if ($card_password) {
         $all_cards_text .= "卡号：{$card_number} 密码：{$card_password}\n";
@@ -157,49 +196,45 @@ foreach ($cards as $index => $card) {
     }
 }
 echo htmlspecialchars(trim($all_cards_text));
-?>
-                                    </div>
-                                </div>
-                                <div class="col-md-4">
-                                    <div class="d-grid gap-2">
-                                        <button class="btn copy-btn" onclick="copyAllCards()">
-                                            <i class="fas fa-copy"></i> 复制所有卡密
-                                        </button>
-                                        <button class="btn copy-btn" onclick="copyCardNumbers()">
-                                            <i class="fas fa-copy"></i> 复制所有卡号
-                                        </button>
-                                        <?php 
-                                        $has_passwords = false;
-                                        foreach ($cards as $card) {
-                                            if (!empty($card['card_password'])) {
-                                                $has_passwords = true;
-                                                break;
-                                            }
-                                        }
-                                        if ($has_passwords): ?>
-                                        <button class="btn copy-btn" onclick="copyCardPasswords()">
-                                            <i class="fas fa-copy"></i> 复制所有密码
-                                        </button>
-                                        <?php endif; ?>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div class="alert alert-warning mt-3 mb-0" style="background: rgba(255,255,255,0.2); border: none; color: white;">
-                                <i class="fas fa-exclamation-triangle"></i>
-                                <strong>重要提示：</strong> 请及时复制保存卡密信息，关闭页面后将无法再次查看！
-                            </div>
-                        </div>
-                        <?php else: ?>
-                        <div class="alert alert-warning">
-                            <i class="fas fa-exclamation-triangle"></i> 未找到卡密信息，请联系客服
-                        </div>
-                        <?php endif; ?>
+?></textarea>
+            <div class="mt-2">
+                <button class="btn btn-success btn-sm" onclick="copyAllCards()" style="background: #10a37f; border-color: #10a37f;">
+                    <i class="fas fa-copy me-1"></i>复制所有卡密
+                </button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="copyCardNumbers()">
+                    <i class="fas fa-copy me-1"></i>仅复制卡号
+                </button>
+                <?php 
+                $has_passwords = false;
+                foreach ($cards as $card) {
+                    if (!empty(trim($card['card_password']))) {
+                        $has_passwords = true;
+                        break;
+                    }
+                }
+                if ($has_passwords): ?>
+                <button class="btn btn-outline-info btn-sm" onclick="copyCardPasswords()">
+                    <i class="fas fa-copy me-1"></i>仅复制密码
+                </button>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+</div>
+<?php else: ?>
+<div class="alert alert-info">
+    <i class="fas fa-info-circle me-2"></i>
+    暂无卡密信息，请联系客服处理。
+</div>
+<?php endif; ?>
 
                         <?php else: ?>
                         <div class="alert alert-danger">
                             <h5><i class="fas fa-exclamation-triangle"></i> 支付失败</h5>
                             <p><?php echo $error ?? '支付未完成或验证失败'; ?></p>
+                            <?php if (isset($order_no)): ?>
+                            <p class="mb-0">订单号: <?php echo $order_no; ?></p>
+                            <?php endif; ?>
                         </div>
                         <?php endif; ?>
                         
@@ -219,128 +254,138 @@ echo htmlspecialchars(trim($all_cards_text));
         </div>
     </div>
 
-    <script>
-        // 复制所有卡密
-        function copyAllCards() {
-            const text = document.getElementById('allCardsText').innerText;
-            copyToClipboard(text, '所有卡密复制成功！');
-        }
+<script>
+    // 复制所有卡密
+    function copyAllCards() {
+        const text = document.getElementById('allCardsText').value;
+        copyToClipboard(text, '所有卡密复制成功！');
+    }
 
-        // 复制所有卡号
-        function copyCardNumbers() {
-            const allText = document.getElementById('allCardsText').innerText;
-            const lines = allText.split('\n');
-            let cardNumbers = '';
-            
-            lines.forEach(line => {
-                if (line.includes('卡号：')) {
-                    const cardNumber = line.split('卡号：')[1].split('密码：')[0].trim();
-                    cardNumbers += cardNumber + '\n';
-                }
-            });
-            
-            copyToClipboard(cardNumbers.trim(), '所有卡号复制成功！');
-        }
-
-        // 复制所有密码
-        function copyCardPasswords() {
-            const allText = document.getElementById('allCardsText').innerText;
-            const lines = allText.split('\n');
-            let passwords = '';
-            
-            lines.forEach(line => {
-                if (line.includes('密码：')) {
-                    const password = line.split('密码：')[1].trim();
-                    passwords += password + '\n';
-                }
-            });
-            
-            copyToClipboard(passwords.trim(), '所有密码复制成功！');
-        }
-
-        // 复制到剪贴板
-        function copyToClipboard(text, successMessage) {
-            // 使用现代API
-            if (navigator.clipboard && window.isSecureContext) {
-                navigator.clipboard.writeText(text).then(() => {
-                    showCopySuccess(successMessage);
-                }).catch(err => {
-                    fallbackCopyText(text, successMessage);
-                });
-            } else {
-                // 降级方案
-                fallbackCopyText(text, successMessage);
-            }
-        }
-
-        // 降级复制方案
-        function fallbackCopyText(text, successMessage) {
-            const textArea = document.createElement('textarea');
-            textArea.value = text;
-            textArea.style.position = 'fixed';
-            textArea.style.left = '-999999px';
-            textArea.style.top = '-999999px';
-            document.body.appendChild(textArea);
-            textArea.focus();
-            textArea.select();
-            
-            try {
-                const successful = document.execCommand('copy');
-                document.body.removeChild(textArea);
-                if (successful) {
-                    showCopySuccess(successMessage);
-                } else {
-                    showCopyError('复制失败，请手动复制');
-                }
-            } catch (err) {
-                document.body.removeChild(textArea);
-                showCopyError('复制失败，请手动复制');
-            }
-        }
-
-        function showCopySuccess(message) {
-            showMessage(message, 'success');
-        }
-
-        function showCopyError(message) {
-            showMessage(message, 'danger');
-        }
-
-        function showMessage(message, type) {
-            // 移除现有的提示
-            const existingToast = document.querySelector('.copy-toast');
-            if (existingToast) {
-                existingToast.remove();
-            }
-            
-            // 创建提示元素
-            const toast = document.createElement('div');
-            toast.className = `copy-toast alert alert-${type} position-fixed`;
-            toast.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 250px;';
-            toast.innerHTML = `
-                <i class="fas fa-${type === 'success' ? 'check' : 'exclamation'}-circle me-2"></i>
-                ${message}
-            `;
-            document.body.appendChild(toast);
-            
-            // 3秒后自动移除
-            setTimeout(() => {
-                toast.remove();
-            }, 3000);
-        }
-
-        // 页面加载后自动选中卡密文本，方便用户直接复制
-        document.addEventListener('DOMContentLoaded', function() {
-            const cardsText = document.getElementById('allCardsText');
-            if (cardsText) {
-                // 创建选择范围
-                const range = document.createRange();
-                range.selectNodeContents(cardsText);
-                const selection = window.getSelection();
-                selection.removeAllRanges();
-                selection.addRange(range);
+    // 复制所有卡号
+    function copyCardNumbers() {
+        const allText = document.getElementById('allCardsText').value;
+        const lines = allText.split('\n');
+        let cardNumbers = '';
+        
+        lines.forEach(line => {
+            if (line.includes('卡号：')) {
+                const cardNumber = line.split('卡号：')[1].split('密码：')[0].trim();
+                cardNumbers += cardNumber + '\n';
             }
         });
-    </script>
+        
+        copyToClipboard(cardNumbers.trim(), '所有卡号复制成功！');
+    }
+
+    // 复制所有密码
+    function copyCardPasswords() {
+        const allText = document.getElementById('allCardsText').value;
+        const lines = allText.split('\n');
+        let passwords = '';
+        
+        lines.forEach(line => {
+            if (line.includes('密码：')) {
+                const password = line.split('密码：')[1].trim();
+                passwords += password + '\n';
+            }
+        });
+        
+        copyToClipboard(passwords.trim(), '所有密码复制成功！');
+    }
+
+    // 复制到剪贴板
+    function copyToClipboard(text, successMessage) {
+        // 使用现代API
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text).then(() => {
+                showCopySuccess(successMessage);
+            }).catch(err => {
+                fallbackCopyText(text, successMessage);
+            });
+        } else {
+            // 降级方案
+            fallbackCopyText(text, successMessage);
+        }
+    }
+
+    // 降级复制方案
+    function fallbackCopyText(text, successMessage) {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        
+        try {
+            const successful = document.execCommand('copy');
+            document.body.removeChild(textArea);
+            if (successful) {
+                showCopySuccess(successMessage);
+            } else {
+                showCopyError('复制失败，请手动复制');
+            }
+        } catch (err) {
+            document.body.removeChild(textArea);
+            showCopyError('复制失败，请手动复制');
+        }
+    }
+
+    function showCopySuccess(message) {
+        showMessage(message, 'success');
+    }
+
+    function showCopyError(message) {
+        showMessage(message, 'danger');
+    }
+
+    function showMessage(message, type) {
+        // 移除现有的提示
+        const existingToast = document.querySelector('.copy-toast');
+        if (existingToast) {
+            existingToast.remove();
+        }
+        
+        // 创建提示元素
+        const toast = document.createElement('div');
+        toast.className = `copy-toast alert alert-${type} position-fixed`;
+        toast.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 250px;';
+        toast.innerHTML = `
+            <i class="fas fa-${type === 'success' ? 'check' : 'exclamation'}-circle me-2"></i>
+            ${message}
+        `;
+        document.body.appendChild(toast);
+        
+        // 3秒后自动移除
+        setTimeout(() => {
+            toast.remove();
+        }, 3000);
+    }
+
+    // 页面加载后自动选中卡密文本，方便用户直接复制
+    document.addEventListener('DOMContentLoaded', function() {
+        const cardsText = document.getElementById('allCardsText');
+        if (cardsText) {
+            cardsText.focus();
+            cardsText.select();
+        }
+    });
+</script>
+
+<style>
+.copy-toast {
+    animation: fadeInOut 3s ease-in-out;
+}
+@keyframes fadeInOut {
+    0% { opacity: 0; transform: translateY(-20px); }
+    20% { opacity: 1; transform: translateY(0); }
+    80% { opacity: 1; transform: translateY(0); }
+    100% { opacity: 0; transform: translateY(-20px); }
+}
+</style>
+
+
 </body>
 </html>

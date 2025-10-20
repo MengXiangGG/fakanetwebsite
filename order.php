@@ -1,6 +1,9 @@
 <?php
 require_once 'includes/functions.php';
 
+// 设置JSON头
+header('Content-Type: application/json');
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $product_id = intval($_POST['product_id']);
     $quantity = isset($_POST['quantity']) ? max(1, intval($_POST['quantity'])) : 1;
@@ -9,15 +12,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $coupon_id = intval($_POST['coupon_id'] ?? 0);
     $final_amount = floatval($_POST['final_amount'] ?? 0);
     $discount_amount = floatval($_POST['discount_amount'] ?? 0);
+    $payment_method = $_POST['payment_method'] ?? 'alipay';
     
     // 检查商品是否存在且可购买
     if (!isProductAvailable($product_id)) {
-        die('商品不存在或已售罄');
+        echo json_encode(['success' => false, 'message' => '商品不存在或已售罄']);
+        exit;
     }
     
     $product = getProductWithStock($product_id);
     if (!$product || $product['stock'] < $quantity) {
-        die('商品库存不足，当前库存：' . $product['stock']);
+        echo json_encode(['success' => false, 'message' => '商品库存不足，当前库存：' . $product['stock']]);
+        exit;
     }
     
     // 验证优惠券（如果提供了优惠券代码）
@@ -25,7 +31,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $original_amount = $product['price'] * $quantity;
         $coupon_result = validateCoupon($coupon_code, $original_amount, $product['category_id']);
         if (!$coupon_result['valid']) {
-            die('优惠券验证失败: ' . $coupon_result['message']);
+            echo json_encode(['success' => false, 'message' => '优惠券验证失败: ' . $coupon_result['message']]);
+            exit;
         }
         // 使用验证后的金额
         $final_amount = $coupon_result['final_amount'];
@@ -47,7 +54,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $product_id, 
         $product['name'], 
         $product['price'], 
-        $quantity, // 这里保存数量
+        $quantity,
         $contact,
         $coupon_id,
         $coupon_code,
@@ -63,19 +70,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($coupon_id) {
                 useCoupon($coupon_id, $order_no, $contact, $discount_amount);
             }
-            // 跳转到成功页面
-            header("Location: pay_return.php?out_trade_no=" . $order_no);
+            // 返回成功响应
+            echo json_encode([
+                'success' => true, 
+                'order_no' => $order_no,
+                'redirect_url' => "pay_return.php?out_trade_no=" . $order_no
+            ]);
             exit;
         } else {
-            die('系统错误，请稍后重试');
+            echo json_encode(['success' => false, 'message' => '系统错误，请稍后重试']);
+            exit;
         }
     }
     
-    // 跳转到支付页面，传递订单号
-    header("Location: pay.php?order_no=" . $order_no);
+    // 使用API接口获取支付二维码
+    require_once 'includes/epay.php';
+    $payment_result = createEpayOrder($order_no, $final_amount, $payment_method);
+    
+    if ($payment_result['error']) {
+        echo json_encode([
+            'success' => false, 
+            'message' => $payment_result['message']
+        ]);
+        exit;
+    }
+    
+    // 返回支付信息
+    echo json_encode([
+        'success' => true,
+        'order_no' => $order_no,
+        'payment_result' => $payment_result,
+        'redirect_url' => "pay_return.php?out_trade_no=" . $order_no
+    ]);
     exit;
 } else {
-    header('Location: index.php');
+    echo json_encode(['success' => false, 'message' => '无效的请求方法']);
     exit;
 }
 ?>

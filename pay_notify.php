@@ -3,7 +3,7 @@ require_once 'includes/functions.php';
 require_once 'includes/epay.php';
 
 // 记录回调请求
-error_log("=== 收到易支付回调 ===");
+error_log("=== 收到易支付异步回调 ===");
 error_log("GET参数: " . print_r($_GET, true));
 
 // 验证签名
@@ -26,7 +26,8 @@ if (verifyEpayNotify()) {
         error_log("支付状态不是成功 - 订单号: {$order_no}, 状态: {$trade_status}");
     }
 } else {
-    error_log("回调签名验证失败");
+    error_log("异步回调签名验证失败");
+    error_log("GET参数: " . print_r($_GET, true));
 }
 
 echo 'fail';

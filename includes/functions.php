@@ -31,6 +31,48 @@ function setSecurityHeaders() {
     }
 }
 
+
+// 在 functions.php 中添加以下函数
+
+/**
+ * 获取分类当天和当月收入
+ */
+function getCategoryDailyMonthlyRevenue() {
+    global $pdo;
+    
+    try {
+        $stmt = $pdo->prepare("
+            SELECT 
+                c.id,
+                c.name,
+                COALESCE(SUM(CASE WHEN DATE(o.paid_at) = CURDATE() THEN o.final_amount ELSE 0 END), 0) as today_revenue,
+                COALESCE(SUM(CASE WHEN YEAR(o.paid_at) = YEAR(CURDATE()) AND MONTH(o.paid_at) = MONTH(CURDATE()) THEN o.final_amount ELSE 0 END), 0) as month_revenue,
+                COUNT(CASE WHEN o.status = 1 THEN o.id END) as total_orders
+            FROM categories c
+            LEFT JOIN products p ON c.id = p.category_id
+            LEFT JOIN orders o ON p.id = o.product_id AND o.status = 1
+            WHERE c.status = 1
+            GROUP BY c.id, c.name
+            ORDER BY today_revenue DESC, month_revenue DESC
+        ");
+        
+        $stmt->execute();
+        $categories = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // 计算每个分类的实际收入（扣除费率）
+        foreach ($categories as &$category) {
+            $net_revenue = calculateNetAmount($category['today_revenue']);
+            $category['today_net_revenue'] = $net_revenue['net_amount'];
+        }
+        
+        return $categories;
+        
+    } catch (PDOException $e) {
+        error_log("获取分类收入统计失败: " . $e->getMessage());
+        return [];
+    }
+}
+
 /**
  * 根据slug获取分类信息
  */
@@ -229,7 +271,64 @@ function create_tables_if_not_exist() {
             ip_address VARCHAR(45),
             user_agent TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )"
+        )",
+        // 在现有的表数组中添加以下表
+"withdrawals" => "CREATE TABLE IF NOT EXISTS withdrawals (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    withdraw_no VARCHAR(50) UNIQUE NOT NULL,
+    category_id INT,
+    category_name VARCHAR(100),
+    amount DECIMAL(10,2) NOT NULL,
+    approved_amount DECIMAL(10,2) DEFAULT 0,
+    order_count INT DEFAULT 0,
+    applicant_name VARCHAR(100),
+    applicant_contact VARCHAR(255),
+    withdraw_account VARCHAR(255),
+    withdraw_method VARCHAR(50),
+    status ENUM('pending', 'processed', 'failed') DEFAULT 'pending',
+    admin_notes TEXT,
+    processed_by VARCHAR(100),
+    processed_at TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
+)",
+
+"coupons" => "CREATE TABLE IF NOT EXISTS coupons (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    code VARCHAR(50) UNIQUE NOT NULL,
+    name VARCHAR(100),
+    type ENUM('fixed', 'percent') NOT NULL,
+    value DECIMAL(10,2) NOT NULL,
+    min_amount DECIMAL(10,2) DEFAULT 0,
+    max_discount DECIMAL(10,2) DEFAULT 0,
+    usage_limit INT DEFAULT 0,
+    used_count INT DEFAULT 0,
+    start_date DATE NULL,
+    end_date DATE NULL,
+    status TINYINT DEFAULT 1,
+    applicable_categories TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)",
+
+"coupon_usage" => "CREATE TABLE IF NOT EXISTS coupon_usage (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    coupon_id INT,
+    order_no VARCHAR(50),
+    user_contact VARCHAR(255),
+    discount_amount DECIMAL(10,2),
+    used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (coupon_id) REFERENCES coupons(id) ON DELETE CASCADE
+)",
+
+"order_cards" => "CREATE TABLE IF NOT EXISTS order_cards (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_no VARCHAR(50),
+    card_id INT,
+    card_number VARCHAR(255),
+    card_password VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE SET NULL
+)"
     ];
     
     foreach ($tables as $table_name => $sql) {
@@ -277,7 +376,7 @@ function get_site_stats() {
 }
 
 /**
- * 获取分类销售统计
+ * 获取分类销售统计 - 包含昨天销售额
  */
 function getCategorySalesStats($category_id = null) {
     global $pdo;
@@ -295,9 +394,11 @@ function getCategorySalesStats($category_id = null) {
             SELECT 
                 c.id,
                 c.name,
-                COALESCE(SUM(CASE WHEN DATE(o.paid_at) = CURDATE() THEN o.price ELSE 0 END), 0) as today_sales,
-                COALESCE(SUM(CASE WHEN o.status = 1 THEN o.price ELSE 0 END), 0) as total_sales,
+                COALESCE(SUM(CASE WHEN DATE(o.paid_at) = CURDATE() THEN o.final_amount ELSE 0 END), 0) as today_sales,
+                COALESCE(SUM(CASE WHEN DATE(o.paid_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY) THEN o.final_amount ELSE 0 END), 0) as yesterday_sales,
+                COALESCE(SUM(CASE WHEN o.status = 1 THEN o.final_amount ELSE 0 END), 0) as total_sales,
                 COUNT(CASE WHEN DATE(o.paid_at) = CURDATE() THEN o.id END) as today_orders,
+                COUNT(CASE WHEN DATE(o.paid_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY) THEN o.id END) as yesterday_orders,
                 COUNT(CASE WHEN o.status = 1 THEN o.id END) as total_orders
             FROM categories c
             LEFT JOIN products p ON c.id = p.category_id
@@ -322,7 +423,7 @@ function getCategorySalesStats($category_id = null) {
 }
 
 /**
- * 获取所有分类的销售统计汇总
+ * 获取所有分类的销售统计汇总 - 包含昨天销售额
  */
 function getCategorySalesSummary() {
     global $pdo;
@@ -331,9 +432,11 @@ function getCategorySalesSummary() {
         $stmt = $pdo->prepare("
             SELECT 
                 COUNT(DISTINCT c.id) as category_count,
-                COALESCE(SUM(CASE WHEN DATE(o.paid_at) = CURDATE() THEN o.price ELSE 0 END), 0) as total_today_sales,
-                COALESCE(SUM(CASE WHEN o.status = 1 THEN o.price ELSE 0 END), 0) as total_all_sales,
+                COALESCE(SUM(CASE WHEN DATE(o.paid_at) = CURDATE() THEN o.final_amount ELSE 0 END), 0) as total_today_sales,
+                COALESCE(SUM(CASE WHEN DATE(o.paid_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY) THEN o.final_amount ELSE 0 END), 0) as total_yesterday_sales,
+                COALESCE(SUM(CASE WHEN o.status = 1 THEN o.final_amount ELSE 0 END), 0) as total_all_sales,
                 COUNT(CASE WHEN DATE(o.paid_at) = CURDATE() THEN o.id END) as total_today_orders,
+                COUNT(CASE WHEN DATE(o.paid_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY) THEN o.id END) as total_yesterday_orders,
                 COUNT(CASE WHEN o.status = 1 THEN o.id END) as total_all_orders
             FROM categories c
             LEFT JOIN products p ON c.id = p.category_id
@@ -347,6 +450,33 @@ function getCategorySalesSummary() {
     } catch (PDOException $e) {
         error_log("获取分类销售汇总失败: " . $e->getMessage());
         return [];
+    }
+}
+
+/**
+ * 计算销售额增长率
+ */
+function calculateSalesGrowth($today_sales, $yesterday_sales) {
+    if ($yesterday_sales == 0) {
+        return $today_sales > 0 ? 100 : 0; // 如果昨天为0，今天有销售就是100%增长
+    }
+    return round((($today_sales - $yesterday_sales) / $yesterday_sales) * 100, 1);
+}
+
+/**
+ * 获取销售增长趋势图标和颜色
+ */
+function getSalesTrendIcon($today_sales, $yesterday_sales) {
+    if ($yesterday_sales == 0) {
+        return $today_sales > 0 ? ['icon' => 'fas fa-arrow-up', 'color' => 'success', 'text' => '新增'] : ['icon' => 'fas fa-minus', 'color' => 'secondary', 'text' => '持平'];
+    }
+    
+    if ($today_sales > $yesterday_sales) {
+        return ['icon' => 'fas fa-arrow-up', 'color' => 'success', 'text' => '增长'];
+    } elseif ($today_sales < $yesterday_sales) {
+        return ['icon' => 'fas fa-arrow-down', 'color' => 'danger', 'text' => '下降'];
+    } else {
+        return ['icon' => 'fas fa-minus', 'color' => 'secondary', 'text' => '持平'];
     }
 }
 
