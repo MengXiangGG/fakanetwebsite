@@ -129,53 +129,172 @@ $net_revenue = calculateNetAmount($stats['total_revenue']);
                         </div>
                     </div>
 
-<!-- 分类收入统计 -->
-<div class="row mb-4">
-    <?php if (!empty($category_revenue)): ?>
-        <?php foreach ($category_revenue as $category): ?>
-        <div class="col-md-4">
-            <div class="category-revenue-card bg-info">
-                <div class="category-name">
-                    <i class="fas fa-folder me-2"></i>
-                    <?php echo htmlspecialchars($category['name']); ?>
-                </div>
-                <div class="revenue-item">
-                    <span>今日收入:</span>
-                    <span class="revenue-amount text-white">
-                        ¥<?php echo number_format($category['today_revenue'], 2); ?>
-                    </span>
-                </div>
-                <div class="revenue-item">
-                    <span>本月收入:</span>
-                    <span class="revenue-amount text-warning">
-                        ¥<?php echo number_format($category['month_revenue'], 2); ?>
-                    </span>
-                </div>
-                <div class="revenue-item">
-                    <span>总订单:</span>
-                    <span class="badge bg-light text-dark">
-                        <?php echo $category['total_orders']; ?> 单
-                    </span>
-                </div>
-                <div class="mt-2">
-                    <small class="opacity-75">
-                        实际到账: ¥<?php echo number_format($category['today_net_revenue'], 2); ?>
-                    </small>
-                </div>
-            </div>
-        </div>
-        <?php endforeach; ?>
-    <?php else: ?>
-        <div class="col-12">
-            <div class="alert alert-warning text-center">
-                <i class="fas fa-exclamation-triangle me-2"></i>
-                暂无分类收入数据
-            </div>
-        </div>
-    <?php endif; ?>
-</div>
+                    <!-- 分类收入统计 -->
+                    <div class="row mb-4">
+                        <?php if (!empty($category_revenue)): ?>
+                            <?php foreach ($category_revenue as $category): ?>
+                            <div class="col-md-4">
+                                <div class="category-revenue-card">
+                                    <div class="category-name">
+                                        <i class="fas fa-folder me-2"></i>
+                                        <?php echo htmlspecialchars($category['name']); ?>
+                                    </div>
+                                    <div class="revenue-item">
+                                        <span>今日收入:</span>
+                                        <span class="revenue-amount text-success">
+                                            ¥<?php echo number_format($category['today_revenue'], 2); ?>
+                                        </span>
+                                    </div>
+                                    <div class="revenue-item">
+                                        <span>本月收入:</span>
+                                        <span class="revenue-amount text-warning">
+                                            ¥<?php echo number_format($category['month_revenue'], 2); ?>
+                                        </span>
+                                    </div>
+                                    <div class="revenue-item">
+                                        <span>总订单:</span>
+                                        <span class="badge bg-primary">
+                                            <?php echo $category['total_orders']; ?> 单
+                                        </span>
+                                    </div>
+                                    <div class="mt-2">
+                                        <small class="opacity-75">
+                                            实际到账: ¥<?php echo number_format($category['today_net_revenue'], 2); ?>
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <div class="col-12">
+                                <div class="alert alert-warning text-center">
+                                    <i class="fas fa-exclamation-triangle me-2"></i>
+                                    暂无分类收入数据
+                                </div>
+                            </div>
+                        <?php endif; ?>
+                    </div>
 
+                    <!-- 统计卡片 -->
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="dashboard-card orders-card">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <div class="stat-number"><?php echo $stats['total_orders']; ?></div>
+                                        <div class="stat-label">总订单数</div>
+                                    </div>
+                                    <i class="fas fa-shopping-cart card-icon"></i>
+                                </div>
+                                <div class="mt-2">
+                                    <small>今日订单: <?php echo $stats['today_orders']; ?></small>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-3">
+                            <div class="dashboard-card products-card">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <div class="stat-number"><?php echo $stats['total_products']; ?></div>
+                                        <div class="stat-label">商品数量</div>
+                                    </div>
+                                    <i class="fas fa-box card-icon"></i>
+                                </div>
+                                <div class="mt-2">
+                                    <small>已上架商品</small>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-3">
+                            <div class="dashboard-card revenue-card">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <?php
+                                        $today_total_revenue = 0;
+                                        foreach ($category_revenue as $category) {
+                                            $today_total_revenue += $category['today_revenue'];
+                                        }
+                                        ?>
+                                        <div class="stat-number">¥<?php echo number_format($today_total_revenue, 2); ?></div>
+                                        <div class="stat-label">今日总销售额</div>
+                                    </div>
+                                    <i class="fas fa-money-bill-wave card-icon"></i>
+                                </div>
+                                <div class="mt-2">
+                                    <small>分类汇总</small>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-3">
+                            <div class="dashboard-card net-revenue-card">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <?php
+                                        $today_total_net = 0;
+                                        foreach ($category_revenue as $category) {
+                                            $today_total_net += $category['today_net_revenue'];
+                                        }
+                                        ?>
+                                        <div class="stat-number">¥<?php echo number_format($today_total_net, 2); ?></div>
+                                        <div class="stat-label">今日实际收入</div>
+                                    </div>
+                                    <i class="fas fa-chart-line card-icon"></i>
+                                </div>
+                                <div class="mt-2">
+                                    <small>扣除费率后</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
+                    <!-- 收入详情卡片 -->
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <div class="dashboard-card fee-card">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <?php
+                                        $today_total_fee = $today_total_revenue - $today_total_net;
+                                        ?>
+                                        <div class="stat-number">¥<?php echo number_format($today_total_fee, 2); ?></div>
+                                        <div class="stat-label">今日总手续费</div>
+                                    </div>
+                                    <i class="fas fa-percentage card-icon"></i>
+                                </div>
+                                <div class="mt-2">
+                                    <small>费率: <?php echo $fee_info['rate_percent']; ?>%</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card bg-light">
+                                <div class="card-body text-center">
+                                    <h6 class="card-title">今日收入分析</h6>
+                                    <div class="row text-center">
+                                        <div class="col-6">
+                                            <div class="border-end">
+                                                <h5 class="text-success mb-1">¥<?php echo number_format($today_total_revenue, 2); ?></h5>
+                                                <small class="text-muted">总销售额</small>
+                                            </div>
+                                        </div>
+                                        <div class="col-6">
+                                            <div>
+                                                <h5 class="text-danger mb-1">-¥<?php echo number_format($today_total_fee, 2); ?></h5>
+                                                <small class="text-muted">手续费</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="mt-2 pt-2 border-top">
+                                        <h4 class="text-primary">¥<?php echo number_format($today_total_net, 2); ?></h4>
+                                        <small class="text-muted">实际收入 (<?php echo $fee_info['net_percent']; ?>%)</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
                     <!-- 最近订单 -->
                     <div class="row mt-4">

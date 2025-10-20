@@ -1,9 +1,9 @@
 <?php
 // 数据库配置
 define('DB_HOST', 'localhost');
-define('DB_USER', 'test_faka_com');
-define('DB_PASS', 'zYW7Ndc5rZnCFFsc');
-define('DB_NAME', 'test_faka_com');
+define('DB_USER', 'ceshixinkafa_com');
+define('DB_PASS', 'CzNsSWywExc7j23m');
+define('DB_NAME', 'ceshixinkafa_com');
 
 
 
